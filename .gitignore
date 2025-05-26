@@ -1,3 +1,4 @@
 node_modules
 dist
 src/validators/index.ts
+tsconfig.tsbuildinfo
