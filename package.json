@@ -14,7 +14,7 @@
   "homepage": "https://pbg.io",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PBGToken/rwa-contract"
+    "url": "git+https://github.com/PBGToken/rwa-contract.git"
   },
   "bugs": "",
   "keywords": [],
