@@ -1,41 +1,55 @@
-import { ethers } from "ethers";
-import { CoinGeckoProvider } from "./CoinGeckoProvider";
+import crypto from "crypto";
 import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
+import { CoinGeckoProvider } from "./CoinGeckoProvider";
 import { TransferID } from "./TransferID";
+
+type Balance = {
+    asset: string,
+    free: string,
+    locked: string,
+};
 
 /**
  * BinanceAccountProvider
  *
- * Implements TokenizedAccountProvider for Binance Smart Chain (BSC).
- * Supports fetching native BNB or BEP-20 token balances and their USD value.
- * Uses ethers.js for blockchain access and CoinGecko for price data.
+ * Implements TokenizedAccountProvider for Binance exchange accounts.
+ * Supports fetching all asset balances and their total USD value.
+ * Uses Binance REST API for account data and CoinGecko for price data.
  */
 export class BinanceAccountProvider implements TokenizedAccountProvider {
-    /**
-     * @param walletAddress The BSC wallet address to query.
-     * @param tokenContractAddress The BEP-20 token contract address, or null for native BNB.
-     * @param rpcUrl The BSC RPC endpoint to use.
-     */
-    constructor(
-        private walletAddress: string,
-        private tokenContractAddress: `0x${string}` | null = null,
-        private rpcUrl: string = "https://bsc-dataseed.binance.org/"
-    ) { }
+    private baseURL = "https://api.binance.com";
+    private apiSecret: string;
 
     /**
-     * Returns the balance of the wallet for the specified token or native BNB.
+     * @param apiKey Binance API key.
+     */
+    constructor(
+        private apiKey: string,
+    ) {
+        this.apiSecret = crypto.randomBytes(32).toString("hex");
+    }
+
+    /**
+     * Returns the total balance (not implemented, returns 0).
      */
     get balance(): Promise<number> {
-        return this.getBalance();
+        return Promise.resolve(0);
     };
 
     /**
-     * Returns the transfer history for the wallet.
+     * Returns the total USD value of all free balances in the account.
+     */
+    get usdBalance(): Promise<number> {
+        return this.getUSDValue();
+    };
+
+    /**
+     * Returns the transfer history for the account.
      * Not implemented, returns an empty array.
      */
     get transferHistory(): Promise<string[]> {
-        return Promise.resolve([]);
-    };
+        return Promise.resolve([]); // Not yet implemented
+    }
 
     /**
      * Throws an error because deposits are not implemented.
@@ -46,38 +60,79 @@ export class BinanceAccountProvider implements TokenizedAccountProvider {
     }
 
     /**
-     * Fetches the balance for the wallet.
-     * If tokenContractAddress is null, returns native BNB balance.
-     * Otherwise, returns BEP-20 token balance.
+     * Signs a query string using HMAC SHA256 with the API secret.
+     * @param queryString The query string to sign.
+     * @returns The signature as a hex string.
      */
-    async getBalance(): Promise<number> {
-        const provider = new ethers.JsonRpcProvider(this.rpcUrl);
-
-        // If tokenContractAddress is not provided, treat as native BNB
-        if (!this.tokenContractAddress) {
-            const balance = await provider.getBalance(this.walletAddress);
-            return Number(ethers.formatEther(balance));
-        }
-
-        // Otherwise, treat as BEP-20 token
-        const bep20Abi = [
-            "function balanceOf(address) view returns (uint256)",
-            "function decimals() view returns (uint8)"
-        ];
-        const contract = new ethers.Contract(this.tokenContractAddress, bep20Abi, provider);
-        const balance = await contract.balanceOf(this.walletAddress);
-        const decimals = await contract.decimals();
-        return Number(ethers.formatUnits(balance, decimals));
+    private sign(queryString: string): string {
+        return crypto
+            .createHmac("sha256", this.apiSecret)
+            .update(queryString)
+            .digest("hex");
     }
 
     /**
-     * Fetches the USD value of the wallet's balance using CoinGecko.
-     * Uses the contract address for BEP-20 tokens, or native BNB if contract address is null.
+     * Makes a signed request to a Binance API endpoint.
+     * @param endpoint The API endpoint.
+     * @param params Query parameters as an object.
+     * @returns The parsed JSON response.
+     */
+    private async privateRequest(endpoint: string, params: Record<string, string | number> = {}) {
+        const timestamp = Date.now();
+        const query = new URLSearchParams({
+            ...params,
+            timestamp: timestamp.toString()
+        }).toString();
+
+        const signature = this.sign(query);
+        const url = `${this.baseURL}${endpoint}?${query}&signature=${signature}`;
+
+        const res = await fetch(url, {
+            method: "GET",
+            headers: {
+                "X-MBX-APIKEY": this.apiKey
+            }
+        });
+
+        if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`Binance API error: ${res.status} ${errorText}`);
+        }
+
+        return await res.json();
+    }
+
+    /**
+     * Fetches all asset balances for the account using Binance API.
+     * @returns Array of Balance objects.
+     */
+    async getBalance(): Promise<Balance[]> {
+        const data = await this.privateRequest("/api/v3/account");
+        return data.balances;
+    }
+
+    /**
+     * Fetches the total USD value of all free balances using CoinGecko prices.
+     * @returns Total USD value as a number.
      */
     async getUSDValue(): Promise<number> {
-        const balance = await this.getBalance();
-        const priceProvider = new CoinGeckoProvider("binance-smart-chain");
-        const price = await priceProvider.getSpotPrice(this.tokenContractAddress);
-        return balance * price;
+        const balances = await this.getBalance();
+        const priceProvider = new CoinGeckoProvider();
+
+        const prices = await priceProvider.getSpotPriceBySymbols(
+            balances.map((balance: Balance) => balance.asset)
+        );
+
+        let totalUSD = 0;
+
+        for (const balance of balances) {
+            const symbol = balance.asset.toLowerCase();
+            const price = prices[symbol]?.usd ?? 0;
+            const freeAmount = parseFloat(balance.free);
+
+            totalUSD += freeAmount * price;
+        }
+
+        return totalUSD;
     }
 }

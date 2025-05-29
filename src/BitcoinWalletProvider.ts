@@ -31,6 +31,13 @@ export class BitcoinWalletProvider implements TokenizedAccountProvider {
     }
 
     /**
+     * Returns the USD value of the wallet's balance for native BTC.
+     */
+    get usdBalance(): Promise<number> {
+        return this.getUSDValue();
+    };
+
+    /**
      * Returns the transfer history for the wallet.
      * Not implemented, returns an empty array.
      */
@@ -54,8 +61,8 @@ export class BitcoinWalletProvider implements TokenizedAccountProvider {
      */
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
-        const priceProvider = new CoinGeckoProvider("bitcoin");
-        const price = await priceProvider.getSpotPrice(null);
+        const priceProvider = new CoinGeckoProvider();
+        const price = await priceProvider.getSpotPrice("bitcoin");
         return balance * price;
     }
 }

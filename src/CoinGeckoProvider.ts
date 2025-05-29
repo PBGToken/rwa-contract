@@ -1,44 +1,73 @@
 import { type PricesProvider } from "./PricesProvider";
 
-export class CoinGeckoProvider implements PricesProvider {
-    constructor(
-        private chain: "ethereum" | "binance-smart-chain" | "bitcoin" = "ethereum",
-    ) { }
+type Prices = {
+  [symbol: string]: {
+    usd: number;
+  };
+};
 
+export class CoinGeckoProvider implements PricesProvider {
     /**
-     * Get spot price for a native token (ETH, BNB, BTC) or an ERC-20/BEP-20 token by contract address.
-     * 
-     * - If `asset` is null, returns the native token price for the configured chain (ETH for Ethereum, BNB for BSC, BTC for Bitcoin).
-     * - If `asset` is a contract address, returns the token price for that contract on the configured chain.
-     * 
-     * @param asset Contract address or null for native token.
+     * Get spot price for any token by CoinGecko asset ID.
+     *
+     * @param asset CoinGecko asset ID (e.g., "ethereum").
      * @param currency Fiat or crypto currency symbol for price (default: "usd").
      * @returns Spot price as a number, or 0 if not found.
      */
     async getSpotPrice(
-        asset: string | null,
+        asset: string,
         currency: string = "usd"
     ): Promise<number> {
-        // Native asset on the chain
-        if (asset === null) {
-            const assetId =
-                this.chain === "ethereum"
-                    ? "ethereum"
-                    : this.chain === "binance-smart-chain"
-                        ? "binancecoin"
-                        : this.chain === "bitcoin"
-                            ? "bitcoin"
-                            : "ethereum";
-            const url = `https://api.coingecko.com/api/v3/simple/price?ids=${assetId}&vs_currencies=${currency.toLowerCase()}`;
-            const response = await fetch(url);
-            const data = await response.json();
-            return data[assetId]?.[currency.toLowerCase()] ?? 0;
-        }
-
-        // ERC-20 or BEP-20 token by contract address
-        const url = `https://api.coingecko.com/api/v3/simple/token_price/${this.chain}?contract_addresses=${asset}&vs_currencies=${currency.toLowerCase()}`;
-        const response = await fetch(url);
+        const url = "https://api.coingecko.com/api/v3/simple/price";
+        const params = new URLSearchParams({
+            ids: asset,
+            vs_currencies: currency.toLowerCase(),
+        });
+        const response = await fetch(`${url}?${params.toString()}`);
         const data = await response.json();
-        return data[asset.toLowerCase()]?.[currency.toLowerCase()] ?? 0;
+        return data[asset]?.[currency.toLowerCase()] ?? 0;
+    }
+
+    /**
+     * Get spot prices for multiple tokens by their CoinGecko asset symbols.
+     *
+     * @param symbols Array of CoinGecko asset symbols (e.g., ["btc", "eth"]).
+     * @param currency Fiat or crypto currency symbol for price (default: "usd").
+     * @returns An object mapping each asset ID to its price data, or empty object if not found.
+     */
+    async getSpotPriceBySymbols(
+        symbols: string[],
+        currency: string = "usd"
+    ): Promise<Prices> {
+        const url = "https://api.coingecko.com/api/v3/simple/price";
+        const params = new URLSearchParams({
+            symbols: symbols.join(",").toLowerCase(),
+            vs_currencies: currency.toLowerCase(),
+        });
+        const response = await fetch(`${url}?${params.toString()}`);
+        return await response.json();
+    }
+
+    /**
+     * Get spot price for a token by contract address and chain.
+     * 
+     * @param contract The token contract address.
+     * @param chain The blockchain network ("ethereum", "binance-smart-chain", etc).
+     * @param currency Fiat or crypto currency symbol for price (default: "usd").
+     * @returns Spot price as a number, or 0 if not found.
+     */
+    async getSpotPriceByTokenAddress(
+        contract: string,
+        chain: "ethereum" | "binance-smart-chain" = "ethereum",
+        currency: string = "usd"
+    ): Promise<number> {
+        const url = `https://api.coingecko.com/api/v3/simple/token_price/${chain}`;
+        const params = new URLSearchParams({
+            contract_addresses: contract,
+            vs_currencies: currency.toLowerCase(),
+        });
+        const response = await fetch(`${url}?${params.toString()}`);
+        const data = await response.json();
+        return data[contract]?.[currency.toLowerCase()] ?? 0;
     }
 }

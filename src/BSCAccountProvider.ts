@@ -4,33 +4,33 @@ import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { TransferID } from "./TransferID";
 
 /**
- * EthereumERC20AccountProvider
+ * BSCAccountProvider
  *
- * Implements TokenizedAccountProvider for Ethereum mainnet.
- * Supports fetching native ETH or ERC-20 token balances and their USD value.
+ * Implements TokenizedAccountProvider for Binance Smart Chain (BSC).
+ * Supports fetching native BNB or BEP-20 token balances and their USD value.
  * Uses ethers.js for blockchain access and CoinGecko for price data.
  */
-export class EthereumERC20AccountProvider implements TokenizedAccountProvider {
+export class BSCAccountProvider implements TokenizedAccountProvider {
     /**
-     * @param walletAddress The Ethereum wallet address to query.
-     * @param tokenContractAddress The ERC-20 token contract address, or null for native ETH.
-     * @param rpcUrl The Ethereum RPC endpoint to use.
+     * @param walletAddress The BSC wallet address to query.
+     * @param tokenContractAddress The BEP-20 token contract address, or null for native BNB.
+     * @param rpcUrl The BSC RPC endpoint to use.
      */
     constructor(
         private walletAddress: string,
         private tokenContractAddress: `0x${string}` | null = null,
-        private rpcUrl: string = "https://eth.rpc.blxrbdn.com"
+        private rpcUrl: string = "https://bsc-dataseed.binance.org/"
     ) { }
 
     /**
-     * Returns the balance of the wallet for the specified token or native ETH.
+     * Returns the balance of the wallet for the specified token or native BNB.
      */
     get balance(): Promise<number> {
         return this.getBalance();
     };
 
     /**
-     * Returns the USD value of the wallet's balance for the specified token or native ETH.
+     * Returns the USD value of the wallet's balance for the specified token or native BNB.
      */
     get usdBalance(): Promise<number> {
         return this.getUSDValue();
@@ -54,24 +54,24 @@ export class EthereumERC20AccountProvider implements TokenizedAccountProvider {
 
     /**
      * Fetches the balance for the wallet.
-     * If tokenContractAddress is null, returns native ETH balance.
-     * Otherwise, returns ERC-20 token balance.
+     * If tokenContractAddress is null, returns native BNB balance.
+     * Otherwise, returns BEP-20 token balance.
      */
     async getBalance(): Promise<number> {
         const provider = new ethers.JsonRpcProvider(this.rpcUrl);
 
-        // If tokenContractAddress is not provided, treat as native ETH
+        // If tokenContractAddress is not provided, treat as native BNB
         if (!this.tokenContractAddress) {
             const balance = await provider.getBalance(this.walletAddress);
             return Number(ethers.formatEther(balance));
         }
 
-        // Otherwise, treat as ERC-20
-        const erc20Abi = [
+        // Otherwise, treat as BEP-20 token
+        const bep20Abi = [
             "function balanceOf(address) view returns (uint256)",
             "function decimals() view returns (uint8)"
         ];
-        const contract = new ethers.Contract(this.tokenContractAddress, erc20Abi, provider);
+        const contract = new ethers.Contract(this.tokenContractAddress, bep20Abi, provider);
         const balance = await contract.balanceOf(this.walletAddress);
         const decimals = await contract.decimals();
         return Number(ethers.formatUnits(balance, decimals));
@@ -79,7 +79,7 @@ export class EthereumERC20AccountProvider implements TokenizedAccountProvider {
 
     /**
      * Fetches the USD value of the wallet's balance using CoinGecko.
-     * Uses the contract address for ERC-20 tokens, or native ETH if contract address is null.
+     * Uses the contract address for BEP-20 tokens, or native BNB if contract address is null.
      */
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
@@ -87,7 +87,7 @@ export class EthereumERC20AccountProvider implements TokenizedAccountProvider {
         const price = this.tokenContractAddress ?
             await priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
             :
-            await priceProvider.getSpotPrice("ethereum");
+            await priceProvider.getSpotPrice("binancecoin");
         return balance * price;
     }
 }
