@@ -9,11 +9,15 @@ import { TransferID } from "./TransferID";
  * Supports fetching native BTC balance and its USD value.
  * Uses Blockstream public API for blockchain access and CoinGecko for price data.
  */
-export class BitcoinWalletProvider implements TokenizedAccountProvider {
+class BitcoinWalletProvider implements TokenizedAccountProvider {
     /**
      * @param walletAddress The Bitcoin wallet address to query.
+     * @param priceProvider CoinGecko Price Provider
      */
-    constructor(private walletAddress: string) { }
+    constructor(
+        private walletAddress: string,
+        private priceProvider: CoinGeckoProvider,
+    ) { }
 
     /**
      * Throws an error because deposits are not implemented.
@@ -61,8 +65,14 @@ export class BitcoinWalletProvider implements TokenizedAccountProvider {
      */
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
-        const priceProvider = new CoinGeckoProvider();
-        const price = await priceProvider.getSpotPrice("bitcoin");
+        const price = await this.priceProvider.getSpotPrice("bitcoin");
         return balance * price;
     }
+}
+
+export function makeBitcoinWalletProvider(
+    walletAddress: string,
+    priceProvider: CoinGeckoProvider
+): BitcoinWalletProvider {
+    return new BitcoinWalletProvider(walletAddress, priceProvider);
 }

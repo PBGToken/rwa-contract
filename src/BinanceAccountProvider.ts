@@ -16,15 +16,17 @@ type Balance = {
  * Supports fetching all asset balances and their total USD value.
  * Uses Binance REST API for account data and CoinGecko for price data.
  */
-export class BinanceAccountProvider implements TokenizedAccountProvider {
+class BinanceAccountProvider implements TokenizedAccountProvider {
     private baseURL = "https://api.binance.com";
     private apiSecret: string;
 
     /**
      * @param apiKey Binance API key.
+     * @param priceProvider CoinGecko Price Provider
      */
     constructor(
         private apiKey: string,
+        private priceProvider: CoinGeckoProvider,
     ) {
         this.apiSecret = crypto.randomBytes(32).toString("hex");
     }
@@ -117,9 +119,8 @@ export class BinanceAccountProvider implements TokenizedAccountProvider {
      */
     async getUSDValue(): Promise<number> {
         const balances = await this.getBalance();
-        const priceProvider = new CoinGeckoProvider();
 
-        const prices = await priceProvider.getSpotPriceBySymbols(
+        const prices = await this.priceProvider.getSpotPriceBySymbols(
             balances.map((balance: Balance) => balance.asset)
         );
 
@@ -135,4 +136,11 @@ export class BinanceAccountProvider implements TokenizedAccountProvider {
 
         return totalUSD;
     }
+}
+
+export function makeBinanceAccountProvider(
+    apiKey: string,
+    priceProvider: CoinGeckoProvider
+): BinanceAccountProvider {
+    return new BinanceAccountProvider(apiKey, priceProvider);
 }

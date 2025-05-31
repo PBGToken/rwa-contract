@@ -10,14 +10,16 @@ import { TransferID } from "./TransferID";
  * Supports fetching native BNB or BEP-20 token balances and their USD value.
  * Uses ethers.js for blockchain access and CoinGecko for price data.
  */
-export class BSCAccountProvider implements TokenizedAccountProvider {
+class BSCAccountProvider implements TokenizedAccountProvider {
     /**
      * @param walletAddress The BSC wallet address to query.
+     * @param priceProvider CoinGecko Price Provider
      * @param tokenContractAddress The BEP-20 token contract address, or null for native BNB.
      * @param rpcUrl The BSC RPC endpoint to use.
      */
     constructor(
         private walletAddress: string,
+        private priceProvider: CoinGeckoProvider,
         private tokenContractAddress: `0x${string}` | null = null,
         private rpcUrl: string = "https://bsc-dataseed.binance.org/"
     ) { }
@@ -83,11 +85,19 @@ export class BSCAccountProvider implements TokenizedAccountProvider {
      */
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
-        const priceProvider = new CoinGeckoProvider();
         const price = this.tokenContractAddress ?
-            await priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
+            await this.priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
             :
-            await priceProvider.getSpotPrice("binancecoin");
+            await this.priceProvider.getSpotPrice("binancecoin");
         return balance * price;
     }
+}
+
+export function makeBSCAccountProvider(
+    walletAddress: string,
+    priceProvider: CoinGeckoProvider,
+    tokenContractAddress: `0x${string}` | null = null,
+    rpcUrl: string = "https://bsc-dataseed.binance.org/"
+): BSCAccountProvider {
+    return new BSCAccountProvider(walletAddress, priceProvider, tokenContractAddress, rpcUrl);
 }

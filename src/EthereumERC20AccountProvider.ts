@@ -10,14 +10,16 @@ import { TransferID } from "./TransferID";
  * Supports fetching native ETH or ERC-20 token balances and their USD value.
  * Uses ethers.js for blockchain access and CoinGecko for price data.
  */
-export class EthereumERC20AccountProvider implements TokenizedAccountProvider {
+class EthereumERC20AccountProvider implements TokenizedAccountProvider {
     /**
      * @param walletAddress The Ethereum wallet address to query.
+     * @param priceProvider CoinGecko Price Provider
      * @param tokenContractAddress The ERC-20 token contract address, or null for native ETH.
      * @param rpcUrl The Ethereum RPC endpoint to use.
      */
     constructor(
         private walletAddress: string,
+        private priceProvider: CoinGeckoProvider,
         private tokenContractAddress: `0x${string}` | null = null,
         private rpcUrl: string = "https://eth.rpc.blxrbdn.com"
     ) { }
@@ -83,11 +85,19 @@ export class EthereumERC20AccountProvider implements TokenizedAccountProvider {
      */
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
-        const priceProvider = new CoinGeckoProvider();
         const price = this.tokenContractAddress ?
-            await priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
+            await this.priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
             :
-            await priceProvider.getSpotPrice("ethereum");
+            await this.priceProvider.getSpotPrice("ethereum");
         return balance * price;
     }
+}
+
+export function makeEthereumERC20AccountProvider(
+    walletAddress: string,
+    priceProvider: CoinGeckoProvider,
+    tokenContractAddress: `0x${string}` | null = null,
+    rpcUrl: string = "https://eth.rpc.blxrbdn.com"
+): EthereumERC20AccountProvider {
+    return new EthereumERC20AccountProvider(walletAddress, priceProvider, tokenContractAddress, rpcUrl);
 }
