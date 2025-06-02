@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { CoinGeckoProvider } from "./CoinGeckoProvider";
+import { PricesProvider } from "./PricesProvider";
 import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { TransferID } from "./TransferID";
 
@@ -19,7 +19,7 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
      */
     constructor(
         private walletAddress: string,
-        private priceProvider: CoinGeckoProvider,
+        private priceProvider: PricesProvider,
         private tokenContractAddress: `0x${string}` | null = null,
         private rpcUrl: string = "https://eth.rpc.blxrbdn.com"
     ) { }
@@ -86,18 +86,18 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
         const price = this.tokenContractAddress ?
-            await this.priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
+            await this.priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress, "ethereum", "usd")
             :
-            await this.priceProvider.getSpotPrice("ethereum");
+            await this.priceProvider.getSpotPrice("ethereum", "usd");
         return balance * price;
     }
 }
 
 export function makeEthereumERC20AccountProvider(
     walletAddress: string,
-    priceProvider: CoinGeckoProvider,
+    priceProvider: PricesProvider,
     tokenContractAddress: `0x${string}` | null = null,
     rpcUrl: string = "https://eth.rpc.blxrbdn.com"
-): EthereumERC20AccountProvider {
+): TokenizedAccountProvider {
     return new EthereumERC20AccountProvider(walletAddress, priceProvider, tokenContractAddress, rpcUrl);
 }

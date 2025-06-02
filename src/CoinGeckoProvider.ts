@@ -6,7 +6,7 @@ type Prices = {
   };
 };
 
-export class CoinGeckoProvider implements PricesProvider {
+class CoinGeckoProvider implements PricesProvider {
     /**
      * Get spot price for any token by CoinGecko asset ID.
      *
@@ -70,4 +70,8 @@ export class CoinGeckoProvider implements PricesProvider {
         const data = await response.json();
         return data[contract]?.[currency.toLowerCase()] ?? 0;
     }
+}
+
+export function makeCoinGeckoProvider(): PricesProvider {
+  return new CoinGeckoProvider();
 }

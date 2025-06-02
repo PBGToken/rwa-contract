@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
-import { CoinGeckoProvider } from "./CoinGeckoProvider";
+import { PricesProvider } from "./PricesProvider";
 import { TransferID } from "./TransferID";
 
 type Balance = {
@@ -26,7 +26,7 @@ class BinanceAccountProvider implements TokenizedAccountProvider {
      */
     constructor(
         private apiKey: string,
-        private priceProvider: CoinGeckoProvider,
+        private priceProvider: PricesProvider,
     ) {
         this.apiSecret = crypto.randomBytes(32).toString("hex");
     }
@@ -121,7 +121,7 @@ class BinanceAccountProvider implements TokenizedAccountProvider {
         const balances = await this.getBalance();
 
         const prices = await this.priceProvider.getSpotPriceBySymbols(
-            balances.map((balance: Balance) => balance.asset)
+            balances.map((balance: Balance) => balance.asset), "usd"
         );
 
         let totalUSD = 0;
@@ -140,7 +140,7 @@ class BinanceAccountProvider implements TokenizedAccountProvider {
 
 export function makeBinanceAccountProvider(
     apiKey: string,
-    priceProvider: CoinGeckoProvider
-): BinanceAccountProvider {
+    priceProvider: PricesProvider
+): TokenizedAccountProvider {
     return new BinanceAccountProvider(apiKey, priceProvider);
 }

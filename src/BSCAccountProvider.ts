@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { CoinGeckoProvider } from "./CoinGeckoProvider";
+import { PricesProvider } from "./PricesProvider";
 import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { TransferID } from "./TransferID";
 
@@ -19,7 +19,7 @@ class BSCAccountProvider implements TokenizedAccountProvider {
      */
     constructor(
         private walletAddress: string,
-        private priceProvider: CoinGeckoProvider,
+        private priceProvider: PricesProvider,
         private tokenContractAddress: `0x${string}` | null = null,
         private rpcUrl: string = "https://bsc-dataseed.binance.org/"
     ) { }
@@ -86,18 +86,18 @@ class BSCAccountProvider implements TokenizedAccountProvider {
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
         const price = this.tokenContractAddress ?
-            await this.priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress)
+            await this.priceProvider.getSpotPriceByTokenAddress(this.tokenContractAddress, "ethereum", "usd")
             :
-            await this.priceProvider.getSpotPrice("binancecoin");
+            await this.priceProvider.getSpotPrice("binancecoin", "usd");
         return balance * price;
     }
 }
 
 export function makeBSCAccountProvider(
     walletAddress: string,
-    priceProvider: CoinGeckoProvider,
+    priceProvider: PricesProvider,
     tokenContractAddress: `0x${string}` | null = null,
     rpcUrl: string = "https://bsc-dataseed.binance.org/"
-): BSCAccountProvider {
+): TokenizedAccountProvider {
     return new BSCAccountProvider(walletAddress, priceProvider, tokenContractAddress, rpcUrl);
 }

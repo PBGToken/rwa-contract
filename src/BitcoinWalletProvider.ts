@@ -1,5 +1,5 @@
 import { type TokenizedAccountProvider } from "./TokenizedAccountProvider";
-import { CoinGeckoProvider } from "./CoinGeckoProvider";
+import { PricesProvider } from "./PricesProvider";
 import { TransferID } from "./TransferID";
 
 /**
@@ -16,7 +16,7 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
      */
     constructor(
         private walletAddress: string,
-        private priceProvider: CoinGeckoProvider,
+        private priceProvider: PricesProvider,
     ) { }
 
     /**
@@ -65,14 +65,14 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
      */
     async getUSDValue(): Promise<number> {
         const balance = await this.getBalance();
-        const price = await this.priceProvider.getSpotPrice("bitcoin");
+        const price = await this.priceProvider.getSpotPrice("bitcoin", "usd");
         return balance * price;
     }
 }
 
 export function makeBitcoinWalletProvider(
     walletAddress: string,
-    priceProvider: CoinGeckoProvider
-): BitcoinWalletProvider {
+    priceProvider: PricesProvider
+): TokenizedAccountProvider {
     return new BitcoinWalletProvider(walletAddress, priceProvider);
 }
