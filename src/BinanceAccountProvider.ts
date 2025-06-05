@@ -3,11 +3,19 @@ import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { PricesProvider } from "./PricesProvider";
 import { TransferID } from "./TransferID";
 
-type Balance = {
-    asset: string,
-    free: string,
-    locked: string,
-};
+interface Balance {
+    asset: string;
+    free: string;
+    locked: string;
+}
+
+interface BinanceTransfer {
+    amount: string;
+    asset: string;
+    txId: string;
+    status: number;
+    insertTime: number;
+}
 
 /**
  * BinanceAccountProvider
@@ -47,18 +55,34 @@ class BinanceAccountProvider implements TokenizedAccountProvider {
 
     /**
      * Returns the transfer history for the account.
-     * Not implemented, returns an empty array.
      */
-    get transferHistory(): Promise<string[]> {
-        return Promise.resolve([]); // Not yet implemented
+    get transferHistory(): Promise<TransferID[]> {
+        return this.getTransferHistory();
     }
 
     /**
-     * Throws an error because deposits are not implemented.
-     * @param _transfers Array of TransferID (unused).
+     * Returns the total USD value of the given transfer IDs.
+     * Deposits are positive, withdrawals are negative.
+     * @param transfers Array of TransferID.
      */
-    deposits(_transfers: TransferID[]): Promise<number> {
-        throw new Error("Method not implemented.");
+    async deposits(transfers: TransferID[]): Promise<number> {
+        const deposits = await this.fetchTransfers("/sapi/v1/capital/deposit/hisrec");
+        const withdrawals = await this.fetchTransfers("/sapi/v1/capital/withdraw/history");
+
+        const all = [
+            ...deposits.map(d => ({ ...d, type: "deposit" })),
+            ...withdrawals.map(w => ({ ...w, type: "withdrawal" }))
+        ].filter(t => transfers.includes(t.txId));
+
+        const prices = await this.priceProvider.getSpotPriceBySymbols(
+            all.map(t => t.asset), "usd"
+        );
+
+        return all.reduce((sum, t) => {
+            const price = prices[t.asset.toLowerCase()]?.usd ?? 0;
+            const amount = parseFloat(t.amount) * price;
+            return sum + (t.type === "deposit" ? amount : -amount);
+        }, 0);
     }
 
     /**
@@ -135,6 +159,27 @@ class BinanceAccountProvider implements TokenizedAccountProvider {
         }
 
         return totalUSD;
+    }
+
+    /**
+     * Fetches the transfer history for deposits and withdrawals.
+     * @returns Array of transfer IDs.
+     */
+    async getTransferHistory(): Promise<TransferID[]> {
+        const deposits = await this.fetchTransfers("/sapi/v1/capital/deposit/hisrec");
+        const withdrawals = await this.fetchTransfers("/sapi/v1/capital/withdraw/history");
+        const allTx = [...deposits, ...withdrawals].sort((a, b) => a.insertTime - b.insertTime);
+        return allTx.map(t => t.txId);
+    }
+
+    /**
+     * Helper method to fetch either deposit or withdrawal history.
+     * @param endpoint Binance API endpoint.
+     * @returns Array of BinanceTransfer.
+     */
+    private async fetchTransfers(endpoint: string): Promise<BinanceTransfer[]> {
+        const data = await this.privateRequest(endpoint);
+        return Array.isArray(data) ? data.filter(t => t.status === 1) : [];
     }
 }
 
