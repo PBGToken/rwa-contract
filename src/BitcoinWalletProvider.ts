@@ -20,11 +20,48 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
     ) { }
 
     /**
-     * Throws an error because deposits are not implemented.
-     * @param _transfers Array of TransferID (unused).
+     * Calculates the net USD value of Bitcoin transactions for the given transfer IDs.
+     * 
+     * - Adds value from outputs (vout) sent **to** the wallet.
+     * - Subtracts value from inputs (vin.prevout) **from** the wallet.
+     * 
+     * Converts net BTC to USD using the current spot price.
+     *
+     * @param transfers Array of Bitcoin transaction hashes (TransferID[])
+     * @returns Net deposit amount in USD.
      */
-    deposits(_transfers: TransferID[]): Promise<number> {
-        throw new Error("Method not implemented.");
+    async deposits(transfers: TransferID[]): Promise<number> {
+        const url = `https://blockstream.info/api/address/${this.walletAddress}/txs`;
+        const res = await fetch(url);
+        const txs = await res.json();
+
+        const depositTxIDs = new Set(transfers);
+        let totalDepositedBTC = 0;
+
+        for (const tx of txs) {
+            if (!depositTxIDs.has(tx.txid)) continue;
+
+            for (const vout of tx.vout) {
+                if (
+                    vout.scriptpubkey_address === this.walletAddress &&
+                    typeof vout.value === "number"
+                ) {
+                    totalDepositedBTC += vout.value / 1e8; // Convert from sats to BTC
+                }
+            }
+
+            for (const vin of tx.vin) {
+                if (
+                    vin.prevout?.scriptpubkey_address === this.walletAddress &&
+                    typeof vin.prevout.value === "number"
+                ) {
+                    totalDepositedBTC -= vin.prevout.value / 1e8; // Convert from sats to BTC
+                }
+            }
+        }
+
+        const price = await this.priceProvider.getSpotPrice("bitcoin", "usd");
+        return totalDepositedBTC * price;
     }
 
     /**
@@ -43,10 +80,9 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
 
     /**
      * Returns the transfer history for the wallet.
-     * Not implemented, returns an empty array.
      */
-    get transferHistory(): Promise<string[]> {
-        return Promise.resolve([]);
+    get transferHistory(): Promise<TransferID[]> {
+        return this.getTransferHistory();
     };
 
     /**
@@ -67,6 +103,18 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
         const balance = await this.getBalance();
         const price = await this.priceProvider.getSpotPrice("bitcoin", "usd");
         return balance * price;
+    }
+
+    /**
+     * Fetches the transfer history for the wallet using Blockstream public API.
+     * Returns an array of transaction IDs.
+     */
+    async getTransferHistory(): Promise<TransferID[]> {
+        const url = `https://blockstream.info/api/address/${this.walletAddress}/txs`;
+        const res = await fetch(url);
+        if (!res.ok) return [];
+        const txs = await res.json();
+        return txs.map((tx: any) => tx.txid).reverse(); // oldest first
     }
 }
 

@@ -14,12 +14,14 @@ class BSCAccountProvider implements TokenizedAccountProvider {
     /**
      * @param walletAddress The BSC wallet address to query.
      * @param priceProvider CoinGecko Price Provider
+     * @param alchemyApiKey The Alchemy API key.
      * @param tokenContractAddress The BEP-20 token contract address, or null for native BNB.
      * @param rpcUrl The BSC RPC endpoint to use.
      */
     constructor(
         private walletAddress: string,
         private priceProvider: PricesProvider,
+        private alchemyApiKey: string,
         private tokenContractAddress: `0x${string}` | null = null,
         private rpcUrl: string = "https://bsc-dataseed.binance.org/"
     ) { }
@@ -40,18 +42,85 @@ class BSCAccountProvider implements TokenizedAccountProvider {
 
     /**
      * Returns the transfer history for the wallet.
-     * Not implemented, returns an empty array.
      */
     get transferHistory(): Promise<string[]> {
-        return Promise.resolve([]);
+        return this.getTransferHistory();
     };
 
     /**
-     * Throws an error because deposits are not implemented.
-     * @param _transfers Array of TransferID (unused).
+     * Calculates the net USD value of the specified Binance Smart Chain transactions.
+     * 
+     * - For native BNB: uses transaction value directly.
+     * - For BEP-20 tokens: extracts transfer amounts from logs (tx.value is always 0).
+     * - Adds amounts received by the wallet, subtracts amounts sent.
+     * 
+     * Converts the net token or BNB amount to USD using the current spot price.
+     *
+     * @param transfers Array of Binance Smart Chain transaction hashes (TransferID[])
+     * @returns Net deposit amount in USD.
      */
-    deposits(_transfers: TransferID[]): Promise<number> {
-        throw new Error("Method not implemented.");
+    async deposits(_transfers: TransferID[]): Promise<number> {
+        const provider = new ethers.JsonRpcProvider(this.rpcUrl);
+        const lowerWalletAddress = this.walletAddress.toLowerCase();
+        let usdTotal = 0;
+
+        if (this.tokenContractAddress) {
+            const bep20Abi = [
+                "function decimals() view returns (uint8)",
+                "event Transfer(address indexed from, address indexed to, uint amount)"
+            ];
+            const contract = new ethers.Contract(this.tokenContractAddress, bep20Abi, provider);
+            const decimals = await contract.decimals();
+
+            for (const txHash of _transfers) {
+                const receipt = await provider.getTransactionReceipt(txHash);
+                if (!receipt) continue;
+
+                for (const log of receipt.logs) {
+                    try {
+                        const parsed = contract.interface.parseLog(log);
+                        if (!parsed || parsed.name !== "Transfer") continue;
+
+                        const [from, to, amountWei] = parsed.args;
+                        const amount = Number(ethers.formatUnits(amountWei, decimals));
+                        const price = await this.priceProvider.getSpotPriceByTokenAddress(
+                            this.tokenContractAddress,
+                            "binance-smart-chain",
+                            "usd"
+                        );
+
+                        if (to === lowerWalletAddress) {
+                            usdTotal += amount * price;
+                        }
+                        if (from === lowerWalletAddress) {
+                            usdTotal += amount * price;
+                        }
+                    } catch {
+                        // ignore non-Transfer logs or decoding errors
+                    }
+                }
+            }
+        } else {
+            for (const txHash of _transfers) {
+                const tx = await provider.getTransaction(txHash);
+                if (!tx) continue;
+
+                const from = tx.from.toLowerCase();
+                const to = tx.to?.toLowerCase();
+
+                const amount = Number(ethers.formatEther(tx.value));
+                const price = await this.priceProvider.getSpotPrice("binancecoin", "usd");
+
+                if (to === lowerWalletAddress) {
+                    usdTotal += amount * price;
+                }
+                if (from === lowerWalletAddress) {
+                    usdTotal -= amount * price;
+                }
+            }
+        }
+
+        return usdTotal;
     }
 
     /**
@@ -91,13 +160,55 @@ class BSCAccountProvider implements TokenizedAccountProvider {
             await this.priceProvider.getSpotPrice("binancecoin", "usd");
         return balance * price;
     }
+
+    /**
+     * Fetches the transfer history for the wallet using the Alchemy API.
+     * For BEP-20 tokens, filters by contract address and returns only BEP-20 transfers.
+     * For native BNB, returns both external and internal transfers.
+     * Returns an array of transaction hashes (TransferID[]).
+     */
+    async getTransferHistory(): Promise<TransferID[]> {
+        const url = `https://bnb-mainnet.g.alchemy.com/v2/${this.alchemyApiKey}}`;
+        const body = {
+            jsonrpc: "2.0",
+            method: "alchemy_getAssetTransfers",
+            params: [
+                {
+                    fromAddress: this.walletAddress,
+                    contractAddresses: this.tokenContractAddress ? [this.tokenContractAddress] : undefined,
+                    category: this.tokenContractAddress
+                        ? ["bep20"]
+                        : ["external", "internal"],
+                }
+            ],
+            id: 1,
+        };
+
+        const options = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        };
+
+        try {
+            const response = await fetch(url, options);
+            const data = await response.json();
+            const txHashs = data.result.transfers.map((transfer: any) => transfer.hash);
+            return txHashs;
+        } catch (error) {
+            console.error(error);
+        }
+
+        return [];
+    }
 }
 
 export function makeBSCAccountProvider(
     walletAddress: string,
     priceProvider: PricesProvider,
+    alchemyApiKey: string,
     tokenContractAddress: `0x${string}` | null = null,
     rpcUrl: string = "https://bsc-dataseed.binance.org/"
 ): TokenizedAccountProvider {
-    return new BSCAccountProvider(walletAddress, priceProvider, tokenContractAddress, rpcUrl);
+    return new BSCAccountProvider(walletAddress, priceProvider, alchemyApiKey, tokenContractAddress, rpcUrl);
 }
