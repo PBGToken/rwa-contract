@@ -93,7 +93,7 @@ class BSCAccountProvider implements TokenizedAccountProvider {
                             usdTotal += amount * price;
                         }
                         if (from === lowerWalletAddress) {
-                            usdTotal += amount * price;
+                            usdTotal -= amount * price;
                         }
                     } catch {
                         // ignore non-Transfer logs or decoding errors

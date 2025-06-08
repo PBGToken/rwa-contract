@@ -62,7 +62,16 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
     async deposits(_transfers: TransferID[]): Promise<number> {
         const provider = new ethers.JsonRpcProvider(this.rpcUrl);
         const lowerWalletAddress = this.walletAddress.toLowerCase();
-        let usdTotal = 0;
+        let totalAmount = 0;
+
+        const price = this.tokenContractAddress ?
+            await this.priceProvider.getSpotPriceByTokenAddress(
+                this.tokenContractAddress,
+                "ethereum",
+                "usd"
+            )
+            :
+            await this.priceProvider.getSpotPrice("ethereum", "usd");
 
         if (this.tokenContractAddress) {
             const erc20Abi = [
@@ -83,17 +92,12 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
 
                         const [from, to, amountWei] = parsed.args;
                         const amount = Number(ethers.formatUnits(amountWei, decimals));
-                        const price = await this.priceProvider.getSpotPriceByTokenAddress(
-                            this.tokenContractAddress,
-                            "ethereum",
-                            "usd"
-                        );
 
                         if (to === lowerWalletAddress) {
-                            usdTotal += amount * price;
+                            totalAmount += amount;
                         }
                         if (from === lowerWalletAddress) {
-                            usdTotal += amount * price;
+                            totalAmount += amount;
                         }
                     } catch {
                         // ignore non-Transfer logs or decoding errors
@@ -109,18 +113,17 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
                 const to = tx.to?.toLowerCase();
 
                 const amount = Number(ethers.formatEther(tx.value));
-                const price = await this.priceProvider.getSpotPrice("ethereum", "usd");
 
                 if (to === lowerWalletAddress) {
-                    usdTotal += amount * price;
+                    totalAmount += amount;
                 }
                 if (from === lowerWalletAddress) {
-                    usdTotal -= amount * price;
+                    totalAmount -= amount;
                 }
             }
         }
 
-        return usdTotal;
+        return totalAmount * price;
     }
 
     /**

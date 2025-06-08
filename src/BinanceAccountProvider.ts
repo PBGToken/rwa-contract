@@ -74,8 +74,11 @@ class BinanceAccountProvider implements TokenizedAccountProvider {
             ...withdrawals.map(w => ({ ...w, type: "withdrawal" }))
         ].filter(t => transfers.includes(t.txId));
 
+        // Create a Set of unique assets
+        const uniqueAssets = new Set(all.map(t => t.asset.toLowerCase()));
+
         const prices = await this.priceProvider.getSpotPriceBySymbols(
-            all.map(t => t.asset), "usd"
+            Array.from(uniqueAssets), "usd"
         );
 
         return all.reduce((sum, t) => {

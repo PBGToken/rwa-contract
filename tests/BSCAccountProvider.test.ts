@@ -17,7 +17,7 @@ describe("BSCAccountProvider", () => {
     expect(Array.isArray(transfers)).toBe(true);
   });
 
-  it("should calculate deposits in USD from transfer IDs", async () => {
+  test("should calculate deposits in USD from transfer IDs", async () => {
     const transfers = await provider.transferHistory;
     const depositUsd = await provider.deposits(transfers);
     expect(typeof depositUsd).toBe("number");
