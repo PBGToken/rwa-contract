@@ -97,7 +97,7 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
                             totalAmount += amount;
                         }
                         if (from === lowerWalletAddress) {
-                            totalAmount += amount;
+                            totalAmount -= amount;
                         }
                     } catch {
                         // ignore non-Transfer logs or decoding errors
