@@ -1,0 +1,181 @@
+mixed one_to_one_asset
+
+import { get_current_input, tx } from ScriptContext
+
+struct State {
+    supply:             Int       "supply"
+
+    type:        String    "type"    // eg. Bitcoin or ERC20
+    account:     ByteArray "account" // if type==Private -> this is a hash of the actual account type + address
+
+    name:        String "name"
+    description: String "description"
+    decimals:    Int    "decimals"    // can't change
+    ticker:      String "ticker"      // can't change
+    url:         String "url"
+    logo:        String "logo"
+}
+
+enum Cip68Extra {
+    Unused
+}
+
+enum Metadata {
+    Cip68 {
+        state:   State
+        version: Int
+        extra:   Cip68Extra
+    }
+    
+    func state(self) -> State {
+        self.switch{
+            x: Cip68 => x.state
+        }
+    }
+}
+
+struct Redeemer {
+    reserves: Int
+}
+
+const SEED_ID          = TxOutputId::new(TxId::new(#), 0)
+const ORACLE_KEYS      = []PubKeyHash{}
+const INITIAL_PRICE: Real = 0.001 // 1000 USD per token -> 0.001 USD per microtoken
+const TYPE             = "Bitcoin"
+const ACCOUNT          = #
+const TICKER           = "BTC"
+const NAME             = "wrapped " + TICKER
+const DESCRIPTION      = "wrapped" + TICKER + " operated by PBG"
+const DECIMALS         = 6
+const URL              = "https://www.pbg.io"
+const LOGO             = "https://assets.pbg.io/usdt_bridge.png"
+
+const ticker_bytes    = TICKER.encode_utf8()
+const user_token_name = Cip67::fungible_token_label + ticker_bytes
+const ref_token_name  = Cip67::reference_token_label + ticker_bytes
+
+const own_hash    = Scripts::tokenized_account
+const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
+const own_address = Address::new(
+    SpendingCredential::new_validator(
+        ValidatorHash::from_script_hash(own_hash)
+    ),
+    Option[StakingCredential]::None
+)
+
+const ref_token_asset_class  = AssetClass::new(own_mph, ref_token_name)
+const user_token_asset_class = AssetClass::new(own_mph, user_token_name)
+
+func validate_initialization() -> () {
+    assert(tx.inputs.any((input: TxInput) -> {
+        input.output_id == SEED_ID
+    }), "seed UTXO not spent")
+
+    ref_utxo = tx.outputs.find((output: TxOutput) -> {
+        output.address == own_address
+        && output.value.get_safe(ref_token_asset_class) == 1
+    })
+
+    metadata = ref_utxo.datum.inline.as_strictly[Metadata]
+
+    assert(metadata == Metadata::Cip68{
+        State{
+            supply:  0,
+            type:    TYPE,         
+            account: ACCOUNT,
+
+            name:        NAME,
+            description: DESCRIPTION,
+            decimals:    DECIMALS,
+            ticker:      TICKER,
+            url:         URL,
+            logo:        LOGO
+        },
+        1,
+        Cip68Extra::Unused
+    }, "metadata not initialized correctly")
+}
+
+func signed_by_quorum() -> Bool {
+    n_signers = ORACLE_KEYS.fold((n_signers: Int, key: PubKeyHash) -> {
+        n_signers + tx.is_signed_by(key).to_int()
+    }, 0)
+
+    n_signers > (ORACLE_KEYS.length/2)
+}
+
+func validate_state_change(redeemer: Redeemer, input: TxInput) -> () {
+    state0 = input.datum.inline.as[Metadata].state()
+
+    output = tx.outputs.find((output: TxOutput) -> {
+        output.address == own_address
+        && output.value.get_safe(ref_token_asset_class) > 0
+    })
+
+    state1 = output.datum.inline.as_strictly[Metadata].state()
+
+    // ensure constant metadata fields don't change
+    assert(state1.type == state0.type, "type not constant")
+    assert(state1.account == state0.account, "account not constant")
+    assert(state1.ticker == state0.ticker, "metadata ticker not constant")
+    assert(state1.decimals == state0.decimals, "metadata decimals not constant")
+
+    n = tx.minted.get_safe(user_token_asset_class)
+    N0 = state0.supply
+    N1 = state1.supply
+
+    assert((N1 - N0) == n, "current token supply not updated correctly")
+    
+    if (n > 0) {
+        Redeemer{R} = redeemer
+
+        assert(N1 <= R, "too many tokens minted")
+        assert(signed_by_quorum(), "not signed by simple quorum of oracles")
+    }
+}
+
+func main(args: MixedArgs) -> () {
+    args.switch{
+        s: Spending => {
+            redeemer = s.redeemer.as[Redeemer]
+
+            utxo = get_current_input()
+
+            tokens = utxo.value.get_policy(own_mph)
+
+            if (tokens.is_empty()) {
+                // UTXOs that don't contain any tokens from current policy can always be spent.
+                // This can be used to remove garbage.
+                ()
+            } else {
+                (name, _) = tokens.head
+
+                if (name == ref_token_name) {
+                    validate_state_change(redeemer, utxo)
+                } else {
+                    error("unexpected token name")
+                }
+            }
+        },
+        Other => {
+            tokens = tx.minted.get_policy(own_mph)
+
+            (name, qty) = tokens.head
+            tail = tokens.tail
+
+            assert(tail.is_empty(), "only one token kind can be minted or burned")
+
+            if (name == user_token_name && qty != 0) {
+                // metadata token must be spent, which triggers Spending witness
+                assert(tx.inputs.any((input: TxInput) -> {
+                    input.address == own_address
+                    && input.value.get_safe(ref_token_asset_class) > 0
+                }), "ref token not spent")
+            } else if (qty == 1 && (name == ref_token_name)) {
+                validate_initialization()
+            } else {
+                error("invalid minted tokens")
+            }
+        }
+    }
+}
