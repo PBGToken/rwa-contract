@@ -9,7 +9,7 @@ export const TEST_DATA = {
     bnbAddress: "0xd31f13827c798d8f457313c2a7ba5f764e4842d8",
 
     // Bitcoin
-    btcAddress: "bc1q8s3h3vw5xufdas890q29lpuca56r0ezqar0mvs",
+    btcAddress: "bc1q23ztqjmh9a32z8j4rstg035y3c3vpfe0la3nck",
 
     // Binance Account API
     binanceApiKey: process.env.BINANCE_API_KEY || "",

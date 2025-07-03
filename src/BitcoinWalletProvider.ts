@@ -2,6 +2,10 @@ import { type TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { PricesProvider } from "./PricesProvider";
 import { TransferID } from "./TransferID";
 
+interface BitcoinWalletProvider extends TokenizedAccountProvider {
+    getSats(): Promise<number>
+}
+
 /**
  * BitcoinWalletProvider
  *
@@ -9,7 +13,7 @@ import { TransferID } from "./TransferID";
  * Supports fetching native BTC balance and its USD value.
  * Uses Blockstream public API for blockchain access and CoinGecko for price data.
  */
-class BitcoinWalletProvider implements TokenizedAccountProvider {
+class BitcoinWalletProviderImpl implements BitcoinWalletProvider {
     /**
      * @param walletAddress The Bitcoin wallet address to query.
      * @param priceProvider CoinGecko Price Provider
@@ -89,11 +93,15 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
      * Fetches the BTC balance for the wallet using Blockstream public API.
      */
     async getBalance(): Promise<number> {
+        return (await this.getSats()) / 1e8; // BTC
+    }
+
+    async getSats(): Promise<number> {
         const url = `https://blockstream.info/api/address/${this.walletAddress}`;
         const res = await fetch(url);
         const data = await res.json();
         const sats = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
-        return sats / 1e8; // BTC
+        return sats
     }
 
     /**
@@ -121,6 +129,6 @@ class BitcoinWalletProvider implements TokenizedAccountProvider {
 export function makeBitcoinWalletProvider(
     walletAddress: string,
     priceProvider: PricesProvider
-): TokenizedAccountProvider {
-    return new BitcoinWalletProvider(walletAddress, priceProvider);
+): BitcoinWalletProvider {
+    return new BitcoinWalletProviderImpl(walletAddress, priceProvider);
 }
