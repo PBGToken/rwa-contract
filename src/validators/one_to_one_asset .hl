@@ -40,13 +40,12 @@ struct Redeemer {
 
 const SEED_ID          = TxOutputId::new(TxId::new(#), 0)
 const ORACLE_KEYS      = []PubKeyHash{}
-const INITIAL_PRICE: Real = 0.001 // 1000 USD per token -> 0.001 USD per microtoken
-const TYPE             = "Bitcoin"
+const TYPE             = "BitcoinNative"
 const ACCOUNT          = #
 const TICKER           = "BTC"
 const NAME             = "wrapped " + TICKER
 const DESCRIPTION      = "wrapped" + TICKER + " operated by PBG"
-const DECIMALS         = 6
+const DECIMALS         = 8
 const URL              = "https://www.pbg.io"
 const LOGO             = "https://assets.pbg.io/usdt_bridge.png"
 
@@ -54,7 +53,7 @@ const ticker_bytes    = TICKER.encode_utf8()
 const user_token_name = Cip67::fungible_token_label + ticker_bytes
 const ref_token_name  = Cip67::reference_token_label + ticker_bytes
 
-const own_hash    = Scripts::tokenized_account
+const own_hash    = Scripts::one_to_one_asset
 const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
 const own_address = Address::new(
     SpendingCredential::new_validator(
