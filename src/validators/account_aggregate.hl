@@ -1,11 +1,13 @@
-mixed one_to_one_asset
+mixed account_aggregate
 
 import { get_current_input, tx } from ScriptContext
 
 struct State {
-    supply:             Int       "supply"
+    current_supply:             Int       "current_supply" // smaller or equal to supply_after_last_mint
+    supply_after_last_mint:     Int       "supply_after_last_mint"
+    transfer_id_before_last_mint: ByteArray "transfer_id_before_last_mint" // this is hash, because it might contain data that shouldn't be public
 
-    type:        String    "type"    // eg. Bitcoin or ERC20
+    type:        String    "type"    // eg. CardanoWallet or Private
     account:     ByteArray "account" // if type==Private -> this is a hash of the actual account type + address
 
     name:        String "name"
@@ -35,17 +37,20 @@ enum Metadata {
 }
 
 struct Redeemer {
-    reserves: Int
+    total_reserves:                    Real // usually a USD value, 6 decimal places is enough
+    reserves_change:                   Real
+    latest_transfer_id: ByteArray
 }
 
 const SEED_ID          = TxOutputId::new(TxId::new(#), 0)
 const ORACLE_KEYS      = []PubKeyHash{}
-const TYPE             = "BitcoinNative"
+const INITIAL_PRICE: Real = 0.001 // 1000 USD per token -> 0.001 USD per microtoken
+const TYPE             = "Private"
 const ACCOUNT          = #
-const TICKER           = "BTC"
-const NAME             = "wrapped " + TICKER
-const DESCRIPTION      = "wrapped" + TICKER + " operated by PBG"
-const DECIMALS         = 8
+const TICKER           = "USDT"
+const NAME             = TICKER + " RWA"
+const DESCRIPTION      = TICKER + " RWA operated by PBG"
+const DECIMALS         = 6
 const URL              = "https://www.pbg.io"
 const LOGO             = "https://assets.pbg.io/usdt_bridge.png"
 
@@ -53,7 +58,7 @@ const ticker_bytes    = TICKER.encode_utf8()
 const user_token_name = Cip67::fungible_token_label + ticker_bytes
 const ref_token_name  = Cip67::reference_token_label + ticker_bytes
 
-const own_hash    = Scripts::one_to_one_asset
+const own_hash    = Scripts::account_aggregate
 const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
 const own_address = Address::new(
     SpendingCredential::new_validator(
@@ -79,7 +84,10 @@ func validate_initialization() -> () {
 
     assert(metadata == Metadata::Cip68{
         State{
-            supply:  0,
+            current_supply:               0,
+            supply_after_last_mint:       0,
+            transfer_id_before_last_mint: #,
+            
             type:    TYPE,         
             account: ACCOUNT,
 
@@ -103,6 +111,21 @@ func signed_by_quorum() -> Bool {
     n_signers > (ORACLE_KEYS.length/2)
 }
 
+func calc_token_price(R: Real, Delta: Real, current_supply: Int, supply_after_last_mint: Int) -> Real {
+    if (current_supply == 0 || supply_after_last_mint == 0) {
+        INITIAL_PRICE
+    } else {
+        p_last = (R - Delta)/supply_after_last_mint
+        p_curr = R / current_supply
+
+        if (p_last < p_curr) {
+            p_last
+        } else {
+            p_curr
+        }
+    }
+}
+
 func validate_state_change(redeemer: Redeemer, input: TxInput) -> () {
     state0 = input.datum.inline.as[Metadata].state()
 
@@ -120,16 +143,23 @@ func validate_state_change(redeemer: Redeemer, input: TxInput) -> () {
     assert(state1.decimals == state0.decimals, "metadata decimals not constant")
 
     n = tx.minted.get_safe(user_token_asset_class)
-    N0 = state0.supply
-    N1 = state1.supply
+    N0 = state0.current_supply
+    N1 = state1.current_supply
 
     assert((N1 - N0) == n, "current token supply not updated correctly")
     
     if (n > 0) {
-        Redeemer{R} = redeemer
+        Redeemer{R, Delta, latest_transfer_id} = redeemer
 
-        assert(N1 <= R, "too many tokens minted")
+        p = calc_token_price(R, Delta, N0, state0.supply_after_last_mint)
+
+        assert(N1*p <= R, "too many tokens minted")
+        assert(state1.transfer_id_before_last_mint == latest_transfer_id, "transfer_id_before_last_mint not updated correctly")
+        assert(state1.supply_after_last_mint == N1, "supply_after_last_mint not updated correctly")
         assert(signed_by_quorum(), "not signed by simple quorum of oracles")
+    } else {
+        assert(state1.supply_after_last_mint == state0.supply_after_last_mint, "supply_after_last_mint can't change during burn")
+        assert(state1.transfer_id_before_last_mint == state0.transfer_id_before_last_mint, "transfer_id_before_last_mint can't change during burn")
     }
 }
 

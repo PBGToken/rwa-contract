@@ -3,12 +3,12 @@ import { StrictType } from "@helios-lang/contract-utils"
 import { makeShelleyAddress, makeValidatorHash, MintingPolicyHash, TxInput } from "@helios-lang/ledger"
 import { ReadonlyCardanoClient } from "@helios-lang/tx-utils"
 import { expectDefined } from "@helios-lang/type-utils"
-import { tokenized_account } from "./validators"
+import { account_aggregate } from "./validators"
 
-const castMetadata = tokenized_account.$types.Metadata
+const castMetadata = account_aggregate.$types.Metadata
 type RWAMetadata = StrictType<typeof castMetadata>
 
-const castDatum = tokenized_account.$types.State
+const castDatum = account_aggregate.$types.State
 export type RWADatum = StrictType<typeof castDatum>
 
 /**

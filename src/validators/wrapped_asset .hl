@@ -1,21 +1,25 @@
-mixed tokenized_account
+mixed wrapped_asset
 
 import { get_current_input, tx } from ScriptContext
 
 struct State {
-    current_supply:             Int       "current_supply" // smaller or equal to supply_after_last_mint
-    supply_after_last_mint:     Int       "supply_after_last_mint"
-    transfer_id_before_last_mint: ByteArray "transfer_id_before_last_mint" // this is hash, because it might contain data that shouldn't be public
+    supply:      Int    "supply"
 
-    type:        String    "type"    // eg. CardanoWallet or Private
-    account:     ByteArray "account" // if type==Private -> this is a hash of the actual account type + address
+    type:        String "type"    // "WrappedAsset", can't change
+    venue:       String "venue"   // eg. "Bitcoin" or "Ethereum" or <bank-name>, can't change
+    policy:      String "policy"  // eg. "Native" or "USD" or "MXN", can't change
+    account:     String "account" // eg. "bc1q23ztqjmh9a32z8j4rstg035y3c3vpfe0la3nck", hash of actual account (+ including secret nonce) if this must remain private, can't change
 
+    ticker:      String "ticker"      // can't change
     name:        String "name"
     description: String "description"
     decimals:    Int    "decimals"    // can't change
-    ticker:      String "ticker"      // can't change
     url:         String "url"
     logo:        String "logo"
+
+    quorum:      Int          "quorum"  // can't change
+    oracles:     []PubKeyHash "oracles" // can't change
+    seed:        TxOutputId   "seed"    // can't change
 }
 
 enum Cip68Extra {
@@ -37,28 +41,31 @@ enum Metadata {
 }
 
 struct Redeemer {
-    total_reserves:                    Real // usually a USD value, 6 decimal places is enough
-    reserves_change:                   Real
-    latest_transfer_id: ByteArray
+    reserves: Int
 }
 
-const SEED_ID          = TxOutputId::new(TxId::new(#), 0)
-const ORACLE_KEYS      = []PubKeyHash{}
-const INITIAL_PRICE: Real = 0.001 // 1000 USD per token -> 0.001 USD per microtoken
-const TYPE             = "Private"
-const ACCOUNT          = #
-const TICKER           = "USDT"
-const NAME             = TICKER + " RWA"
-const DESCRIPTION      = TICKER + " RWA operated by PBG"
-const DECIMALS         = 6
-const URL              = "https://www.pbg.io"
-const LOGO             = "https://assets.pbg.io/usdt_bridge.png"
+// TODO: ability to leave const params unset during hl2ts transpilation
+const SEED         = TxOutputId::new(TxId::new(#), 0)
+const ORACLES      = []PubKeyHash{}
+const QUORUM       = ORACLES.length/2
+
+const TYPE    = "WrappedAsset"
+const VENUE   = "VENUE"
+const POLICY  = "POLICY"
+const ACCOUNT = "ACCOUNT"
+
+const TICKER      = "TICKER"
+const NAME        = "NAME"
+const DESCRIPTION = "DESCRIPTION"
+const DECIMALS    = 0
+const URL         = "URL"
+const LOGO        = "LOGO"
 
 const ticker_bytes    = TICKER.encode_utf8()
 const user_token_name = Cip67::fungible_token_label + ticker_bytes
 const ref_token_name  = Cip67::reference_token_label + ticker_bytes
 
-const own_hash    = Scripts::tokenized_account
+const own_hash    = Scripts::wrapped_asset
 const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
 const own_address = Address::new(
     SpendingCredential::new_validator(
@@ -72,8 +79,8 @@ const user_token_asset_class = AssetClass::new(own_mph, user_token_name)
 
 func validate_initialization() -> () {
     assert(tx.inputs.any((input: TxInput) -> {
-        input.output_id == SEED_ID
-    }), "seed UTXO not spent")
+        input.output_id == SEED
+    }), "seed not spent")
 
     ref_utxo = tx.outputs.find((output: TxOutput) -> {
         output.address == own_address
@@ -84,19 +91,23 @@ func validate_initialization() -> () {
 
     assert(metadata == Metadata::Cip68{
         State{
-            current_supply:               0,
-            supply_after_last_mint:       0,
-            transfer_id_before_last_mint: #,
-            
-            type:    TYPE,         
+            supply:  0,
+
+            type:    TYPE,
+            venue:   VENUE,
+            policy:  POLICY,
             account: ACCOUNT,
 
+            ticker:      TICKER,
             name:        NAME,
             description: DESCRIPTION,
             decimals:    DECIMALS,
-            ticker:      TICKER,
             url:         URL,
-            logo:        LOGO
+            logo:        LOGO,
+
+            quorum: QUORUM,
+            oracles: ORACLES,
+            seed: SEED
         },
         1,
         Cip68Extra::Unused
@@ -104,26 +115,11 @@ func validate_initialization() -> () {
 }
 
 func signed_by_quorum() -> Bool {
-    n_signers = ORACLE_KEYS.fold((n_signers: Int, key: PubKeyHash) -> {
+    n_signers = ORACLES.fold((n_signers: Int, key: PubKeyHash) -> {
         n_signers + tx.is_signed_by(key).to_int()
     }, 0)
 
-    n_signers > (ORACLE_KEYS.length/2)
-}
-
-func calc_token_price(R: Real, Delta: Real, current_supply: Int, supply_after_last_mint: Int) -> Real {
-    if (current_supply == 0 || supply_after_last_mint == 0) {
-        INITIAL_PRICE
-    } else {
-        p_last = (R - Delta)/supply_after_last_mint
-        p_curr = R / current_supply
-
-        if (p_last < p_curr) {
-            p_last
-        } else {
-            p_curr
-        }
-    }
+    n_signers > QUORUM
 }
 
 func validate_state_change(redeemer: Redeemer, input: TxInput) -> () {
@@ -137,29 +133,29 @@ func validate_state_change(redeemer: Redeemer, input: TxInput) -> () {
     state1 = output.datum.inline.as_strictly[Metadata].state()
 
     // ensure constant metadata fields don't change
-    assert(state1.type == state0.type, "type not constant")
-    assert(state1.account == state0.account, "account not constant")
-    assert(state1.ticker == state0.ticker, "metadata ticker not constant")
-    assert(state1.decimals == state0.decimals, "metadata decimals not constant")
+    assert(state1.type == TYPE, "type changed")
+    assert(state1.venue == state0.venue, "venue changed")
+    assert(state1.policy == state0.policy, "policy changed")
+    assert(state1.account == state0.account, "account changed")
+
+    assert(state1.ticker == state0.ticker, "ticker changed")
+    assert(state1.decimals == state0.decimals, "decimals changed")
+
+    assert(state1.quorum == QUORUM, "quorum changed")
+    assert(state1.oracles == ORACLES, "oracles changed")
+    assert(state1.seed == SEED, "seed changed")
 
     n = tx.minted.get_safe(user_token_asset_class)
-    N0 = state0.current_supply
-    N1 = state1.current_supply
+    N0 = state0.supply
+    N1 = state1.supply
 
     assert((N1 - N0) == n, "current token supply not updated correctly")
     
     if (n > 0) {
-        Redeemer{R, Delta, latest_transfer_id} = redeemer
+        Redeemer{R} = redeemer
 
-        p = calc_token_price(R, Delta, N0, state0.supply_after_last_mint)
-
-        assert(N1*p <= R, "too many tokens minted")
-        assert(state1.transfer_id_before_last_mint == latest_transfer_id, "transfer_id_before_last_mint not updated correctly")
-        assert(state1.supply_after_last_mint == N1, "supply_after_last_mint not updated correctly")
+        assert(N1 <= R, "too many tokens minted")
         assert(signed_by_quorum(), "not signed by simple quorum of oracles")
-    } else {
-        assert(state1.supply_after_last_mint == state0.supply_after_last_mint, "supply_after_last_mint can't change during burn")
-        assert(state1.transfer_id_before_last_mint == state0.transfer_id_before_last_mint, "transfer_id_before_last_mint can't change during burn")
     }
 }
 
