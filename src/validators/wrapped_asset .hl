@@ -38,6 +38,18 @@ enum Metadata {
             x: Cip68 => x.state
         }
     }
+
+    func version(self) -> Int {
+        self.switch{
+            x: Cip68 => x.version
+        }
+    }
+
+    func extra(self) -> Cip68Extra {
+        self.switch{
+            x: Cip68 => x.extra
+        }
+    }
 }
 
 struct Redeemer {
@@ -45,21 +57,17 @@ struct Redeemer {
 }
 
 // TODO: ability to leave const params unset during hl2ts transpilation
-const SEED         = TxOutputId::new(TxId::new(#), 0)
-const ORACLES      = []PubKeyHash{}
-const QUORUM       = ORACLES.length/2
-
 const TYPE    = "WrappedAsset"
 const VENUE   = "VENUE"
 const POLICY  = "POLICY"
 const ACCOUNT = "ACCOUNT"
 
 const TICKER      = "TICKER"
-const NAME        = "NAME"
-const DESCRIPTION = "DESCRIPTION"
 const DECIMALS    = 0
-const URL         = "URL"
-const LOGO        = "LOGO"
+
+const ORACLES      = []PubKeyHash{}
+const QUORUM       = (ORACLES.length + 1)/2
+const SEED         = TxOutputId::new(TxId::new(#), 0)
 
 const ticker_bytes    = TICKER.encode_utf8()
 const user_token_name = Cip67::fungible_token_label + ticker_bytes
@@ -88,30 +96,24 @@ func validate_initialization() -> () {
     })
 
     metadata = ref_utxo.datum.inline.as_strictly[Metadata]
+    state = metadata.state()
 
-    assert(metadata == Metadata::Cip68{
-        State{
-            supply:  0,
+    
+    assert(state.supply == 0, "supply not initialized at 0")
 
-            type:    TYPE,
-            venue:   VENUE,
-            policy:  POLICY,
-            account: ACCOUNT,
+    assert(state.type == TYPE, "unexpected type")
+    assert(state.venue == VENUE, "unexpected venue")
+    assert(state.policy == POLICY, "unexpected policy")
+    assert(state.account == ACCOUNT, "unexpected account")
 
-            ticker:      TICKER,
-            name:        NAME,
-            description: DESCRIPTION,
-            decimals:    DECIMALS,
-            url:         URL,
-            logo:        LOGO,
+    assert(state.ticker == TICKER, "unexpected ticker")
+    assert(state.decimals == DECIMALS, "unexpected decimals")
 
-            quorum: QUORUM,
-            oracles: ORACLES,
-            seed: SEED
-        },
-        1,
-        Cip68Extra::Unused
-    }, "metadata not initialized correctly")
+    assert(state.quorum == QUORUM, "unexpected quorum")
+    assert(state.seed == SEED, "unexpected seed")
+
+    assert(metadata.version() == 1, "unexpected metadata version")
+    assert(metadata.extra() == Cip68Extra::Unused, "unexpected metadata extra values")
 }
 
 func signed_by_quorum() -> Bool {
@@ -119,7 +121,7 @@ func signed_by_quorum() -> Bool {
         n_signers + tx.is_signed_by(key).to_int()
     }, 0)
 
-    n_signers > QUORUM
+    n_signers >= QUORUM
 }
 
 func validate_state_change(redeemer: Redeemer, input: TxInput) -> () {
