@@ -3,6 +3,10 @@ import { PricesProvider } from "./PricesProvider";
 import { TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { TransferID } from "./TransferID";
 
+export interface EthereumERC20AccountProvider extends TokenizedAccountProvider {
+    getInternalBalance(): Promise<bigint>
+}
+
 /**
  * EthereumERC20AccountProvider
  *
@@ -10,7 +14,7 @@ import { TransferID } from "./TransferID";
  * Supports fetching native ETH or ERC-20 token balances and their USD value.
  * Uses ethers.js for blockchain access and CoinGecko for price data.
  */
-class EthereumERC20AccountProvider implements TokenizedAccountProvider {
+class EthereumERC20AccountProviderImpl implements EthereumERC20AccountProvider {
     /**
      * @param walletAddress The Ethereum wallet address to query.
      * @param priceProvider CoinGecko Price Provider
@@ -151,6 +155,25 @@ class EthereumERC20AccountProvider implements TokenizedAccountProvider {
         return Number(ethers.formatUnits(balance, decimals));
     }
 
+    async getInternalBalance(): Promise<bigint> {
+        const provider = new ethers.JsonRpcProvider(this.rpcUrl);
+
+        // If tokenContractAddress is not provided, treat as native ETH
+        if (!this.tokenContractAddress) {
+            const balance = await provider.getBalance(this.walletAddress);
+            return ethers.toBigInt(balance)
+        }
+
+        // Otherwise, treat as ERC-20
+        const erc20Abi = [
+            "function balanceOf(address) view returns (uint256)",
+            "function decimals() view returns (uint8)"
+        ];
+        const contract = new ethers.Contract(this.tokenContractAddress, erc20Abi, provider);
+        const balance = await contract.balanceOf(this.walletAddress);
+        return ethers.toBigInt(balance)
+    }
+
     /**
      * Fetches the USD value of the wallet's balance using CoinGecko.
      * Uses the contract address for ERC-20 tokens, or native ETH if contract address is null.
@@ -213,5 +236,5 @@ export function makeEthereumERC20AccountProvider(
     tokenContractAddress: `0x${string}` | null = null,
     rpcUrl: string = "https://eth.rpc.blxrbdn.com"
 ): TokenizedAccountProvider {
-    return new EthereumERC20AccountProvider(walletAddress, priceProvider, alchemyApiKey, tokenContractAddress, rpcUrl);
+    return new EthereumERC20AccountProviderImpl(walletAddress, priceProvider, alchemyApiKey, tokenContractAddress, rpcUrl);
 }
