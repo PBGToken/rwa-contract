@@ -2,7 +2,7 @@ import { type TokenizedAccountProvider } from "./TokenizedAccountProvider";
 import { PricesProvider } from "./PricesProvider";
 import { TransferID } from "./TransferID";
 
-interface BitcoinWalletProvider extends TokenizedAccountProvider {
+export interface BitcoinWalletProvider extends TokenizedAccountProvider {
     getSats(): Promise<number>
 }
 
