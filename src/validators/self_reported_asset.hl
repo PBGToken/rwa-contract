@@ -104,6 +104,8 @@ func validate_initialization() -> () {
 
     assert(metadata.version() == 1, "unexpected metadata version")
     assert(metadata.extra() == Cip68Extra::Unused, "unexpected metadata extra values")
+
+    assert(tx.is_signed_by(OWNER), "tx not signed by owner")
 }
 
 func validate_state_change(input: TxInput) -> () {
@@ -128,11 +130,13 @@ func validate_state_change(input: TxInput) -> () {
     n = tx.minted.get_safe(user_token_asset_class)
 
     assert((state1.supply - state0.supply) == n, "current token supply not updated correctly")
+
+    if (n > 0) {
+        assert(tx.is_signed_by(OWNER), "tx not signed by owner")
+    }
 }
 
 func main(args: MixedArgs) -> () {
-    assert(tx.is_signed_by(OWNER), "tx not signed by owner")
-
     args.switch{
         Spending => {
             utxo = get_current_input()
