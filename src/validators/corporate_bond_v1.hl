@@ -1,0 +1,191 @@
+mixed corporate_bond_v1
+
+import { get_current_input, tx } from ScriptContext
+
+struct Metadata {
+    type:        String "type"      // "CorporateBondV1", can't change
+
+    company:     String "company"   // the company issuing the bond, eg. "PBG", can't change
+    asset:       AssetClass "asset" // denomination of bond
+    principal:   Int "principal"    // number of "asset" required to pay back the bond
+    rate:        Int "rate"         // annual repay rate in basis points, eg. 12% is 1200 basis points
+    start:       Time "start"       // when the bond was issued
+    duration:    Duration "duration" // end=start+duration, the time the bond can be returned to redeem the underlying principal
+    interval:    Duration "interval" // payment interval
+
+    ticker:      String "ticker"      // can't change
+    name:        String "name"
+    description: String "description"
+    decimals:    Int    "decimals"    // always 0, can't change
+    url:         String "url"
+    logo:        String "logo"
+
+    seed:        TxOutputId "seed"    // can't change
+}
+
+enum Cip68Extra {
+    Unused
+}
+
+enum MetadataWrapper {
+    Cip68 {
+        metadata: Metadata
+        version:  Int
+        extra:    Cip68Extra
+    }
+    
+    func metadata(self) -> Metadata {
+        self.switch{
+            x: Cip68 => x.metadata
+        }
+    }
+
+    func version(self) -> Int {
+        self.switch{`
+            x: Cip68 => x.version
+        }
+    }
+
+    func extra(self) -> Cip68Extra {
+        self.switch{
+            x: Cip68 => x.extra
+        }
+    }
+}
+
+// TODO: ability to leave const params unset during hl2ts transpilation
+const TYPE = "CorporateBondV1"
+const COMPANY = "COMPANY"
+const ASSET  = AssetClass::ADA
+const PRINCIPAL = 100_000_000_000
+const RATE = 1200
+const START = Time::new(0)
+const DURATION = Duration::DAY*365
+const INTERVAL = Duration::DAY*30
+
+const TICKER      = "TICKER"
+
+const SEED         = TxOutputId::new(TxId::new(#), 0)
+
+const ticker_bytes    = TICKER.encode_utf8()
+const user_token_name = Cip67::user_token_label + ticker_bytes
+const ref_token_name  = Cip67::reference_token_label + ticker_bytes
+
+const own_hash    = Scripts::corporate_bond_v1
+const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
+const own_address = Address::new(
+    SpendingCredential::new_validator(
+        ValidatorHash::from_script_hash(own_hash)
+    ),
+    Option[StakingCredential]::None
+)
+
+const ref_token_asset_class  = AssetClass::new(own_mph, ref_token_name)
+const user_token_asset_class = AssetClass::new(own_mph, user_token_name)
+
+func validate_initialization() -> () {
+    assert(tx.inputs.any((input: TxInput) -> {
+        input.output_id == SEED
+    }), "seed not spent")
+
+    ref_utxo = tx.outputs.find((output: TxOutput) -> {
+        output.address == own_address
+        && output.value.get_safe(ref_token_asset_class) == 1
+    })
+
+    metadata_wrapper = ref_utxo.datum.inline.as_strictly[MetadataWrapper]
+    metadata = metadata_wrapper.metadata()
+
+    assert(metadata.type == TYPE, "unexpected type")
+    assert(metadata.company == COMPANY, "unexpected company")
+    assert(metadata.asset == ASSET, "unexpected asset")
+    assert(metadata.principal == PRINCIPAL, "unexpected principal")
+    assert(metadata.rate == RATE, "unexpected rate")
+    assert(metadata.start == START, "unexpected start")
+    assert(metadata.duration == DURATION, "unexpected duration")
+    assert(metadata.interval == INTERVAL, "unexpected interval")
+
+    assert(metadata.ticker == TICKER, "unexpected ticker")
+    assert(metadata.decimals == 0, "unexpected decimals")
+
+    assert(metadata.seed == SEED, "unexpected seed")
+
+    assert(metadata_wrapper.version() == 1, "unexpected metadata version")
+    assert(metadata_wrapper.extra() == Cip68Extra::Unused, "unexpected metadata extra values")
+}
+
+func validate_metadata_change(input: TxInput) -> () {
+    metadata0 = input.datum.inline.as[MetadataWrapper].metadata()
+
+    output = tx.outputs.find((output: TxOutput) -> {
+        output.address == own_address
+        && output.value.get_safe(ref_token_asset_class) > 0
+    })
+
+    metadata1 = output.datum.inline.as_strictly[MetadataWrapper].metadata()
+
+    // ensure constant metadata fields don't change
+    assert(metadata1.type == TYPE, "type changed")
+    assert(metadata1.company == metadata0.company, "company changed")
+    assert(metadata1.asset == metadata0.asset, "asset changed")
+    assert(metadata1.principal == metadata0.principal, "principal changed")
+    assert(metadata1.rate == metadata0.rate, "rate changed")
+    assert(metadata1.start == metadata0.start, "start changed")
+    assert(metadata1.duration == metadata0.duration, "duration changed")
+    assert(metadata1.interval == metadata0.interval, "interval changed")
+
+    assert(metadata1.ticker == metadata0.ticker, "ticker changed")
+    assert(metadata1.decimals == 0, "decimals changed")
+
+    assert(metadata1.seed == SEED, "seed changed")
+
+    assert(tx.minted.get_policy(own_mph).is_empty(), "unexpected tokens minted")
+}
+
+func main(args: MixedArgs) -> () {
+    args.switch{
+        Spending => {
+
+            utxo = get_current_input()
+
+            tokens = utxo.value.get_policy(own_mph)
+
+            if (tokens.is_empty()) {
+                // UTXOs that don't contain any tokens from current policy can always be spent.
+                // This can be used to remove garbage.
+                ()
+            } else {
+                (name, _) = tokens.head
+
+                if (name == ref_token_name) {
+                    validate_metadata_change(utxo)
+                } else {
+                    error("unexpected token name")
+                }
+            }
+        },
+        Other => {
+            tokens = tx.minted.get_policy(own_mph)
+            n = tokens.length
+
+            if (n == 1) {
+                // must be burned
+                (name, qty) = tokens.head
+
+                assert(qty == -1, "must be burned")
+                assert(name == user_token_name, "only nft can be burned")
+            } else if (n == 2) {
+                user_token_qty = tokens.get(user_token_name)
+                assert(user_token_qty == 1, "only one nft can be minted")
+
+                ref_token_qty = tokens.get(ref_token_name)
+
+                assert(ref_token_qty == 1, "only one ref token can be minted")
+
+                validate_initialization()
+            } else {
+                error("invalid minted/burned tokens")
+            }
+        }
+    }
+}
