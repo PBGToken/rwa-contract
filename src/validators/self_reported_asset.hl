@@ -102,10 +102,6 @@ func validate_initialization() -> () {
     assert(metadata.extra() == Cip68Extra::Unused, "unexpected metadata extra values")
 }
 
-func signed_by_owner() -> Bool {
-    tx.is_signed_by(OWNER)
-}
-
 func validate_state_change(input: TxInput) -> () {
     state0 = input.datum.inline.as[Metadata].state()
 
@@ -124,11 +120,11 @@ func validate_state_change(input: TxInput) -> () {
     assert(state1.decimals == state0.decimals, "decimals changed")
     assert(state1.owner == OWNER, "owner changed")
     assert(state1.seed == SEED, "seed changed")
-
-    assert(signed_by_owner(), "not signed by owner")
 }
 
 func main(args: MixedArgs) -> () {
+    assert(tx.is_signed_by(OWNER), "tx not signed by owner")
+
     args.switch{
         Spending => {
             utxo = get_current_input()
