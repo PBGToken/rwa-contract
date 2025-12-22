@@ -3,6 +3,8 @@ mixed self_reported_asset
 import { get_current_input, tx } from ScriptContext
 
 struct State {
+    supply:      Int    "supply"
+
     type:        String "type"    // "SelfReportedAsset", can't change
     asset:       String "asset"  // eg. "Silver" or "Silver OZ"
 
@@ -90,6 +92,8 @@ func validate_initialization() -> () {
     metadata = ref_utxo.datum.inline.as_strictly[Metadata]
     state = metadata.state()
 
+    assert(state.supply == 0, "supply not initialized at 0")
+
     assert(state.type == TYPE, "unexpected type")
     assert(state.asset == ASSET, "unexpected asset")
 
@@ -120,6 +124,10 @@ func validate_state_change(input: TxInput) -> () {
     assert(state1.decimals == state0.decimals, "decimals changed")
     assert(state1.owner == OWNER, "owner changed")
     assert(state1.seed == SEED, "seed changed")
+
+    n = tx.minted.get_safe(user_token_asset_class)
+
+    assert((state1.supply - state0.supply) == n, "current token supply not updated correctly")
 }
 
 func main(args: MixedArgs) -> () {
@@ -154,9 +162,12 @@ func main(args: MixedArgs) -> () {
             assert(tail.is_empty(), "only one token kind can be minted or burned")
 
             if (name == user_token_name && qty != 0) {
-                // can be minted or burned independently
-                ()
-            } else if (qty == 1 && (name == ref_token_name)) {
+                // metadata token must be spent, which triggers Spending witness, and makes sure supply is correctly updated
+                assert(tx.inputs.any((input: TxInput) -> {
+                    input.address == own_address
+                    && input.value.get_safe(ref_token_asset_class) > 0
+                }), "ref token not spent")
+            } else if (name == ref_token_name && qty == 1) {
                 validate_initialization()
             } else {
                 error("invalid minted tokens")
