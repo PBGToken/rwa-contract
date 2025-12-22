@@ -41,7 +41,7 @@ enum MetadataWrapper {
     }
 
     func version(self) -> Int {
-        self.switch{`
+        self.switch{
             x: Cip68 => x.version
         }
     }

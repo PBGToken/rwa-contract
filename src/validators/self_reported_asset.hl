@@ -1,0 +1,170 @@
+mixed self_reported_asset
+
+import { get_current_input, tx } from ScriptContext
+
+struct State {
+    type:        String "type"    // "SelfReportedAsset", can't change
+    asset:       String "asset"  // eg. "Silver" or "Silver OZ"
+
+    ticker:      String "ticker"      // can't change
+    name:        String "name"
+    description: String "description"
+    decimals:    Int    "decimals"    // can't change
+    url:         String "url"
+    logo:        String "logo"
+
+    owner:       PubKeyHash "owner" // can't change
+    seed:        TxOutputId   "seed"    // can't change
+}
+
+enum Cip68Extra {
+    Unused
+}
+
+enum Metadata {
+    Cip68 {
+        state:   State
+        version: Int
+        extra:   Cip68Extra
+    }
+    
+    func state(self) -> State {
+        self.switch{
+            x: Cip68 => x.state
+        }
+    }
+
+    func version(self) -> Int {
+        self.switch{
+            x: Cip68 => x.version
+        }
+    }
+
+    func extra(self) -> Cip68Extra {
+        self.switch{
+            x: Cip68 => x.extra
+        }
+    }
+}
+
+struct Redeemer {
+    reserves: Int
+}
+
+// TODO: ability to leave const params unset during hl2ts transpilation
+const TYPE    = "SelfReportedAsset"
+const ASSET   = "ASSET"
+
+const TICKER      = "TICKER"
+const DECIMALS    = 0
+
+const OWNER      = PubKeyHash::new(#)
+const SEED         = TxOutputId::new(TxId::new(#), 0)
+
+const ticker_bytes    = TICKER.encode_utf8()
+const user_token_name = Cip67::fungible_token_label + ticker_bytes
+const ref_token_name  = Cip67::reference_token_label + ticker_bytes
+
+const own_hash    = Scripts::wrapped_asset
+const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
+const own_address = Address::new(
+    SpendingCredential::new_validator(
+        ValidatorHash::from_script_hash(own_hash)
+    ),
+    Option[StakingCredential]::None
+)
+
+const ref_token_asset_class  = AssetClass::new(own_mph, ref_token_name)
+const user_token_asset_class = AssetClass::new(own_mph, user_token_name)
+
+func validate_initialization() -> () {
+    assert(tx.inputs.any((input: TxInput) -> {
+        input.output_id == SEED
+    }), "seed not spent")
+
+    ref_utxo = tx.outputs.find((output: TxOutput) -> {
+        output.address == own_address
+        && output.value.get_safe(ref_token_asset_class) == 1
+    })
+
+    metadata = ref_utxo.datum.inline.as_strictly[Metadata]
+    state = metadata.state()
+
+    assert(state.type == TYPE, "unexpected type")
+    assert(state.asset == ASSET, "unexpected asset")
+
+    assert(state.ticker == TICKER, "unexpected ticker")
+    assert(state.decimals == DECIMALS, "unexpected decimals")
+
+    assert(state.seed == SEED, "unexpected seed")
+
+    assert(metadata.version() == 1, "unexpected metadata version")
+    assert(metadata.extra() == Cip68Extra::Unused, "unexpected metadata extra values")
+}
+
+func signed_by_owner() -> Bool {
+    tx.is_signed_by(OWNER)
+}
+
+func validate_state_change(input: TxInput) -> () {
+    state0 = input.datum.inline.as[Metadata].state()
+
+    output = tx.outputs.find((output: TxOutput) -> {
+        output.address == own_address
+        && output.value.get_safe(ref_token_asset_class) > 0
+    })
+
+    state1 = output.datum.inline.as_strictly[Metadata].state()
+
+    // ensure constant metadata fields don't change
+    assert(state1.type == TYPE, "type changed")
+    assert(state1.asset == state0.asset, "asset changed")
+
+    assert(state1.ticker == state0.ticker, "ticker changed")
+    assert(state1.decimals == state0.decimals, "decimals changed")
+    assert(state1.owner == OWNER, "owner changed")
+    assert(state1.seed == SEED, "seed changed")
+
+    assert(signed_by_owner(), "not signed by owner")
+}
+
+func main(args: MixedArgs) -> () {
+    args.switch{
+        Spending => {
+            utxo = get_current_input()
+
+            tokens = utxo.value.get_policy(own_mph)
+
+            if (tokens.is_empty()) {
+                // UTXOs that don't contain any tokens from current policy can always be spent.
+                // This can be used to remove garbage.
+                ()
+            } else {
+                (name, _) = tokens.head
+
+                if (name == ref_token_name) {
+                    validate_state_change(utxo)
+                } else {
+                    error("unexpected token name")
+                }
+            }
+        },
+        Other => {
+            tokens = tx.minted.get_policy(own_mph)
+
+            (name, qty) = tokens.head
+            tail = tokens.tail
+
+            assert(tail.is_empty(), "only one token kind can be minted or burned")
+
+            if (name == user_token_name && qty != 0) {
+                // can be minted or burned independently
+                ()
+            } else if (qty == 1 && (name == ref_token_name)) {
+                validate_initialization()
+            } else {
+                error("invalid minted tokens")
+            }
+        }
+    }
+}
