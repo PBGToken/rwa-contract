@@ -3,3 +3,4 @@ dist
 src/validators/index.ts
 tsconfig.*tsbuildinfo
 .env*.local
+types

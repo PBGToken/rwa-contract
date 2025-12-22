@@ -4,7 +4,7 @@
   "description": "",
   "main": "./dist/index.js",
   "type": "module",
-  "types": "./dist/index.d.ts",
+  "types": "./types/index.d.ts",
   "license": "AGPL-version-3.0",
   "private": false,
   "engines": {
@@ -27,7 +27,7 @@
     "test": "jest",
     "build": "npm run build:validators && npm run build:types && npm run build:bundle",
     "build:bundle": "node ./esbuild.js",
-    "build:types": "npx tsc --declaration --emitDeclarationOnly",
+    "build:types": "npx tsc",
     "build:validators": "npx hl2ts --out-dir ./src/validators"
   },
   "dependencies": {
