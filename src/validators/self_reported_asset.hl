@@ -61,13 +61,13 @@ const TICKER      = "TICKER"
 const DECIMALS    = 0
 
 const OWNER      = PubKeyHash::new(#)
-const SEED         = TxOutputId::new(TxId::new(#), 0)
+const SEED       = TxOutputId::new(TxId::new(#), 0)
 
 const ticker_bytes    = TICKER.encode_utf8()
 const user_token_name = Cip67::fungible_token_label + ticker_bytes
 const ref_token_name  = Cip67::reference_token_label + ticker_bytes
 
-const own_hash    = Scripts::wrapped_asset
+const own_hash    = Scripts::self_reported_asset
 const own_mph     = MintingPolicyHash::from_script_hash(own_hash)
 const own_address = Address::new(
     SpendingCredential::new_validator(
@@ -144,7 +144,7 @@ func main(args: MixedArgs) -> () {
             tokens = utxo.value.get_policy(own_mph)
 
             if (tokens.is_empty()) {
-                // UTXOs that don't contain any tokens from current policy can always be spent.
+                // UTXOs that don't contain any tokens from current policy canref_token_name always be spent.
                 // This can be used to remove garbage.
                 ()
             } else {
