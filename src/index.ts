@@ -1,6 +1,6 @@
 export { makeCardanoWalletProvider } from "./CardanoWalletProvider"
 export { type PricesProvider } from "./PricesProvider"
-export { makeRWADatumProvider, type RWADatumProvider } from "./RWADatumProvider"
+export * from "./RWAMetadata"
 export { type TokenizedAccountProvider } from "./TokenizedAccountProvider"
 export { filterTransfersAfter, type TransferID } from "./TransferID"
 export { corporate_bond_v1, wrapped_asset, account_aggregate, self_reported_asset } from "./validators"
